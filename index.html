@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Clicker Game: The Ban Hammer!</title>
+    <title>Clicker Game: Online Ranking!</title>
     <!-- Tailwind CSS CDN for easy styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -15,13 +15,29 @@
         .rounded-element {
             border-radius: 0.5rem; /* Tailwind's default rounded-lg */
         }
+        .leaderboard-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 1rem;
+            background-color: #f3f4f6; /* bg-gray-100 */
+            border-radius: 0.375rem; /* rounded-md */
+            margin-bottom: 0.25rem;
+        }
+        .leaderboard-item:nth-child(odd) {
+            background-color: #e5e7eb; /* bg-gray-200 */
+        }
     </style>
 </head>
-<body class="bg-gradient-to-br from-purple-400 to-blue-600 min-h-screen flex items-center justify-center p-4">
+<body class="bg-gradient-to-br from-purple-400 to-blue-600 min-h-screen flex flex-col items-center justify-center p-4">
 
     <!-- Main Game Container -->
-    <div id="game-container" class="bg-white p-8 rounded-lg shadow-2xl max-w-md w-full flex flex-col items-center space-y-6">
+    <div id="game-container" class="bg-white p-8 rounded-lg shadow-2xl max-w-md w-full flex flex-col items-center space-y-6 mb-6">
         <h1 class="text-4xl font-extrabold text-gray-800 mb-4 text-center">Clicker Challenge!</h1>
+
+        <!-- User ID Display -->
+        <div class="bg-gray-100 p-3 rounded-lg w-full text-center text-sm text-gray-600">
+            Your User ID: <span id="user-id" class="font-mono text-gray-800 break-all">Loading...</span>
+        </div>
 
         <!-- Player Score/Rank Display -->
         <div class="bg-blue-100 p-4 rounded-lg w-full text-center">
@@ -35,7 +51,12 @@
 
         <!-- Cheat Button (Banning Mechanism) -->
         <button id="cheat-button" class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition duration-300 ease-in-out w-full">
-            I'm a Cheater! (Click to get banned)
+            Cheat
+        </button>
+
+        <!-- Reset Game Button -->
+        <button id="reset-button" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition duration-300 ease-in-out w-full">
+            Reset My Score
         </button>
 
         <!-- Message Display Area -->
@@ -44,26 +65,181 @@
         </div>
     </div>
 
-    <script>
+    <!-- Leaderboard Container -->
+    <div id="leaderboard-container" class="bg-white p-8 rounded-lg shadow-2xl max-w-md w-full">
+        <h2 class="text-3xl font-bold text-gray-800 mb-4 text-center">Leaderboard</h2>
+        <div id="leaderboard-list" class="space-y-1">
+            <!-- Leaderboard items will be inserted here -->
+            <p class="text-center text-gray-500" id="leaderboard-loading">Loading leaderboard...</p>
+        </div>
+    </div>
+
+    <script type="module">
+        // Firebase imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables for Firebase (MANDATORY usage as per instructions)
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
         // Get references to HTML elements
         const clickButton = document.getElementById('click-button');
         const cheatButton = document.getElementById('cheat-button');
+        const resetButton = document.getElementById('reset-button');
         const playerScoreDisplay = document.getElementById('player-score');
         const messageBox = document.getElementById('message-box');
+        const userIdDisplay = document.getElementById('user-id');
+        const leaderboardList = document.getElementById('leaderboard-list');
+        const leaderboardLoading = document.getElementById('leaderboard-loading');
 
         // Initialize player score and ban status
         let playerScore = 0;
         let isBanned = false;
+        let currentUserId = null; // Will be set after authentication
+
+        // Collection path for public data as per instructions
+        const playerScoresCollectionPath = `artifacts/${appId}/public/data/playerScores`;
 
         /**
-         * Updates the player's score and displays it.
+         * Authenticates the user.
+         * If __initial_auth_token is provided, uses custom token sign-in.
+         * Otherwise, signs in anonymously.
+         */
+        async function authenticateUser() {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Firebase authentication error:", error);
+                showMessage(`Authentication failed: ${error.message}`, 'bg-red-200 text-red-900');
+            }
+        }
+
+        /**
+         * Listens for authentication state changes and initializes game/data listeners.
+         */
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                currentUserId = user.uid;
+                userIdDisplay.textContent = currentUserId;
+                console.log("Authenticated as:", currentUserId);
+
+                // Start listening for the current player's score
+                listenToPlayerScore(currentUserId);
+                // Start listening for leaderboard updates
+                listenToLeaderboard();
+            } else {
+                currentUserId = null;
+                userIdDisplay.textContent = 'Not authenticated. Trying to sign in...';
+                console.log("No user authenticated. Attempting anonymous sign-in.");
+                await authenticateUser(); // Try to authenticate if not already
+            }
+        });
+
+        /**
+         * Listens to the current player's score in Firestore in real-time.
+         * @param {string} userId - The ID of the current user.
+         */
+        function listenToPlayerScore(userId) {
+            const playerDocRef = doc(db, playerScoresCollectionPath, userId);
+            onSnapshot(playerDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    playerScore = docSnap.data().score || 0;
+                    playerScoreDisplay.textContent = playerScore;
+                    console.log("Current player score updated from Firestore:", playerScore);
+                } else {
+                    // If no score exists for this user, initialize it to 0
+                    playerScore = 0;
+                    playerScoreDisplay.textContent = playerScore;
+                    setDoc(playerDocRef, { score: 0, userId: userId }, { merge: true })
+                        .then(() => console.log("Initialized player score to 0 in Firestore."))
+                        .catch(error => console.error("Error initializing player score:", error));
+                }
+            }, (error) => {
+                console.error("Error listening to player score:", error);
+                showMessage(`Error loading your score: ${error.message}`, 'bg-red-200 text-red-900');
+            });
+        }
+
+        /**
+         * Updates the player's score in Firestore.
+         */
+        async function updatePlayerScoreInFirestore() {
+            if (!currentUserId) {
+                showMessage("Not authenticated. Cannot save score.", 'bg-red-200 text-red-900');
+                return;
+            }
+            const playerDocRef = doc(db, playerScoresCollectionPath, currentUserId);
+            try {
+                await setDoc(playerDocRef, { score: playerScore, userId: currentUserId }, { merge: true });
+                console.log("Player score updated in Firestore:", playerScore);
+            } catch (error) {
+                console.error("Error updating player score in Firestore:", error);
+                showMessage(`Error saving score: ${error.message}`, 'bg-red-200 text-red-900');
+            }
+        }
+
+        /**
+         * Listens to the leaderboard data in Firestore in real-time.
+         * Fetches all scores, sorts them, and updates the UI.
+         */
+        function listenToLeaderboard() {
+            const q = query(collection(db, playerScoresCollectionPath));
+            onSnapshot(q, (snapshot) => {
+                leaderboardLoading.classList.add('hidden'); // Hide loading message
+                leaderboardList.innerHTML = ''; // Clear previous list
+
+                const players = [];
+                snapshot.forEach((doc) => {
+                    players.push(doc.data());
+                });
+
+                // Sort players by score in descending order (client-side sorting due to orderBy limitation)
+                players.sort((a, b) => b.score - a.score);
+
+                if (players.length === 0) {
+                    leaderboardList.innerHTML = '<p class="text-center text-gray-500">No players yet. Be the first to click!</p>';
+                } else {
+                    players.forEach((player, index) => {
+                        const listItem = document.createElement('div');
+                        listItem.classList.add('leaderboard-item');
+                        listItem.innerHTML = `
+                            <span class="font-medium text-gray-700">${index + 1}. ${player.userId.substring(0, 8)}...</span>
+                            <span class="font-bold text-blue-700">${player.score} Clicks</span>
+                        `;
+                        leaderboardList.appendChild(listItem);
+                    });
+                }
+                console.log("Leaderboard updated.");
+            }, (error) => {
+                console.error("Error listening to leaderboard:", error);
+                showMessage(`Error loading leaderboard: ${error.message}`, 'bg-red-200 text-red-900');
+                leaderboardLoading.classList.remove('hidden');
+                leaderboardLoading.textContent = 'Failed to load leaderboard.';
+            });
+        }
+
+
+        /**
+         * Updates the player's score locally and in Firestore.
          */
         function updateScore() {
             if (!isBanned) {
                 playerScore++;
                 playerScoreDisplay.textContent = playerScore;
+                updatePlayerScoreInFirestore(); // Save to Firestore
             } else {
-                // If banned, prevent further clicks and show a message
                 showMessage('You are banned! No more clicking for you.');
             }
         }
@@ -71,17 +247,44 @@
         /**
          * Handles the "cheat" action, banning the player.
          * Disables game interaction and displays a ban message.
+         * Also updates ban status in Firestore if necessary (though not explicitly requested, good practice for persistence).
          */
         function banPlayer() {
             isBanned = true; // Set the ban status to true
             clickButton.disabled = true; // Disable the click button
             cheatButton.disabled = true; // Disable the cheat button itself
+            resetButton.disabled = true; // Disable reset button too
             cheatButton.classList.remove('bg-red-500', 'hover:bg-red-600');
             cheatButton.classList.add('bg-gray-400', 'cursor-not-allowed'); // Change style for disabled button
 
             // Display a clear ban message
             showMessage('*** YOU ARE BANNED! Game Over for you, cheater! ***', 'bg-red-200 text-red-900');
+
+            // Optionally, save ban status to Firestore (could be in user's private data or a public ban list)
+            if (currentUserId) {
+                const playerDocRef = doc(db, playerScoresCollectionPath, currentUserId);
+                setDoc(playerDocRef, { isBanned: true }, { merge: true })
+                    .then(() => console.log("Player ban status updated in Firestore."))
+                    .catch(error => console.error("Error updating ban status:", error));
+            }
         }
+
+        /**
+         * Resets the current player's score to 0 and updates it in Firestore.
+         */
+        function resetPlayerScore() {
+            if (currentUserId && !isBanned) {
+                playerScore = 0;
+                playerScoreDisplay.textContent = playerScore;
+                updatePlayerScoreInFirestore(); // Save to Firestore
+                showMessage("Your score has been reset!", 'bg-blue-100 text-blue-800');
+            } else if (isBanned) {
+                showMessage("You are banned and cannot reset your score.", 'bg-red-200 text-red-900');
+            } else {
+                showMessage("Authentication in progress. Please wait.", 'bg-yellow-100 text-yellow-800');
+            }
+        }
+
 
         /**
          * Displays a message in the message box.
@@ -97,14 +300,17 @@
         // Add event listeners to the buttons
         clickButton.addEventListener('click', updateScore);
         cheatButton.addEventListener('click', banPlayer);
+        resetButton.addEventListener('click', resetPlayerScore);
 
-        // Optional: Initialize some elements with rounded-element class for consistency
+        // Apply rounded-element class for consistency
         document.querySelectorAll('button, div').forEach(el => {
-            if (el.id === 'game-container' || el.id === 'player-score-container' || el.id === 'message-box' || el.tagName === 'BUTTON') {
+            if (el.id === 'game-container' || el.id === 'player-score-container' || el.id === 'message-box' || el.tagName === 'BUTTON' || el.id === 'leaderboard-container' || el.id === 'leaderboard-list') {
                 el.classList.add('rounded-element');
             }
         });
 
+        // Initial authentication attempt when the script loads
+        authenticateUser();
     </script>
 </body>
 </html>
