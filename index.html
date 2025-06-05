@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clicker Game: The Ban Hammer!</title>
+    <!-- Tailwind CSS CDN for easy styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles can go here if needed, but Tailwind is preferred */
+        body {
+            font-family: 'Inter', sans-serif; /* Using Inter font as per instructions */
+        }
+        /* Ensure rounded corners for all elements as per instructions */
+        .rounded-element {
+            border-radius: 0.5rem; /* Tailwind's default rounded-lg */
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-purple-400 to-blue-600 min-h-screen flex items-center justify-center p-4">
+
+    <!-- Main Game Container -->
+    <div id="game-container" class="bg-white p-8 rounded-lg shadow-2xl max-w-md w-full flex flex-col items-center space-y-6">
+        <h1 class="text-4xl font-extrabold text-gray-800 mb-4 text-center">Clicker Challenge!</h1>
+
+        <!-- Player Score/Rank Display -->
+        <div class="bg-blue-100 p-4 rounded-lg w-full text-center">
+            <p class="text-xl font-semibold text-blue-800">Your Clicks (Rank): <span id="player-score" class="text-3xl font-bold text-blue-900">0</span></p>
+        </div>
+
+        <!-- Click Button -->
+        <button id="click-button" class="bg-green-500 hover:bg-green-600 text-white font-bold py-4 px-8 rounded-lg shadow-md hover:shadow-lg transition duration-300 ease-in-out transform hover:scale-105 w-full">
+            Click Me!
+        </button>
+
+        <!-- Cheat Button (Banning Mechanism) -->
+        <button id="cheat-button" class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition duration-300 ease-in-out w-full">
+            I'm a Cheater! (Click to get banned)
+        </button>
+
+        <!-- Message Display Area -->
+        <div id="message-box" class="bg-yellow-100 text-yellow-800 p-3 rounded-lg text-center w-full hidden">
+            <!-- Message will appear here -->
+        </div>
+    </div>
+
+    <script>
+        // Get references to HTML elements
+        const clickButton = document.getElementById('click-button');
+        const cheatButton = document.getElementById('cheat-button');
+        const playerScoreDisplay = document.getElementById('player-score');
+        const messageBox = document.getElementById('message-box');
+
+        // Initialize player score and ban status
+        let playerScore = 0;
+        let isBanned = false;
+
+        /**
+         * Updates the player's score and displays it.
+         */
+        function updateScore() {
+            if (!isBanned) {
+                playerScore++;
+                playerScoreDisplay.textContent = playerScore;
+            } else {
+                // If banned, prevent further clicks and show a message
+                showMessage('You are banned! No more clicking for you.');
+            }
+        }
+
+        /**
+         * Handles the "cheat" action, banning the player.
+         * Disables game interaction and displays a ban message.
+         */
+        function banPlayer() {
+            isBanned = true; // Set the ban status to true
+            clickButton.disabled = true; // Disable the click button
+            cheatButton.disabled = true; // Disable the cheat button itself
+            cheatButton.classList.remove('bg-red-500', 'hover:bg-red-600');
+            cheatButton.classList.add('bg-gray-400', 'cursor-not-allowed'); // Change style for disabled button
+
+            // Display a clear ban message
+            showMessage('*** YOU ARE BANNED! Game Over for you, cheater! ***', 'bg-red-200 text-red-900');
+        }
+
+        /**
+         * Displays a message in the message box.
+         * @param {string} message - The message to display.
+         * @param {string} [tailwindClasses] - Optional Tailwind CSS classes for styling the message box.
+         */
+        function showMessage(message, tailwindClasses = 'bg-yellow-100 text-yellow-800') {
+            messageBox.textContent = message;
+            messageBox.className = `p-3 rounded-lg text-center w-full ${tailwindClasses}`; // Reset and apply new classes
+            messageBox.classList.remove('hidden'); // Make the message box visible
+        }
+
+        // Add event listeners to the buttons
+        clickButton.addEventListener('click', updateScore);
+        cheatButton.addEventListener('click', banPlayer);
+
+        // Optional: Initialize some elements with rounded-element class for consistency
+        document.querySelectorAll('button, div').forEach(el => {
+            if (el.id === 'game-container' || el.id === 'player-score-container' || el.id === 'message-box' || el.tagName === 'BUTTON') {
+                el.classList.add('rounded-element');
+            }
+        });
+
+    </script>
+</body>
+</html>
